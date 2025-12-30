@@ -1,35 +1,61 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
-
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { CustomBottomNav, NAV_ITEMS } from '@/components/CustomBottomNav';
+import { useTheme } from '@/components/ThemeContext';
+import React, { useState } from 'react';
+import { StyleSheet, View,StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const [activeTab, setActiveTab] = useState('home');
+  const { colors } = useTheme();
+
+  const handleTabPress = (tabId: string) => {
+    setActiveTab(tabId);
+  };
+
+  const renderScreen = () => {
+    switch (activeTab) {
+      case 'home':
+        return <HomeScreen onNavigate={handleTabPress} />;
+      case 'meals':
+        return <MealsScreen />;
+      case 'profile':
+        return <ProfileScreen />;
+      case 'settings':
+        return <SettingsScreen />;
+      default:
+        return <HomeScreen onNavigate={handleTabPress} />;
+    }
+  };
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar hidden={false} />
+      {/* Screen Content */}
+      <View style={styles.content}>
+        {renderScreen()}
+      </View>
+
+      {/* Custom Bottom Navigation */}
+      <CustomBottomNav
+        items={NAV_ITEMS}
+        activeTab={activeTab}
+        onTabPress={handleTabPress}
       />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
-      />
-    </Tabs>
+    </SafeAreaView>
   );
 }
+
+// Import the screen components
+import HomeScreen from './index';
+import MealsScreen from './meals';
+import ProfileScreen from './profile';
+import SettingsScreen from './settings';
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+  },
+});
