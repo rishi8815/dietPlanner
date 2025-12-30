@@ -1,8 +1,10 @@
 import { useTheme } from '../../components/ThemeContext';
+import { useAuth } from '../../components/AuthContext';
+import { showToast } from '../../components/ToastConfig';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
-  
+  Alert,
   ScrollView,
   StyleSheet,
   Switch,
@@ -10,11 +12,30 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import {SafeAreaView} from "react-native-safe-area-context"
+import { SafeAreaView } from "react-native-safe-area-context"
 
 const SettingsScreen = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const { isDark, toggleTheme, colors } = useTheme();
+  const { signOut, user } = useAuth();
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+            showToast.success('Logged Out', 'You have been signed out successfully');
+          },
+        },
+      ]
+    );
+  };
 
   const SettingItem = ({
     icon,
@@ -154,11 +175,14 @@ const SettingsScreen = () => {
 
         {/* Logout */}
         <View style={styles.section}>
+          {user && (
+            <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
+              Signed in as {user.email}
+            </Text>
+          )}
           <TouchableOpacity
             style={[styles.logoutButton, { backgroundColor: colors.dangerBackground }]}
-            onPress={() => {
-              // Handle logout when backend is ready
-            }}
+            onPress={handleLogout}
           >
             <Ionicons name="log-out-outline" size={20} color={colors.accent} />
             <Text style={[styles.logoutButtonText, { color: colors.accent }]}>Log Out</Text>
@@ -209,11 +233,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
-    marginBottom:0,
+    marginBottom: 0,
   },
   settingContent: {
     flex: 1,
-  
+
   },
   settingTitle: {
     fontSize: 16,
@@ -235,5 +259,11 @@ const styles = StyleSheet.create({
   logoutButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  userEmail: {
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 12,
+    marginHorizontal: 20,
   },
 });
