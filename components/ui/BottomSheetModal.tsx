@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -7,12 +7,17 @@ import {
     Modal,
     ScrollView,
     Dimensions,
+    Animated,
+    PanResponder,
+    GestureResponderEvent,
+    PanResponderGestureState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/context/ThemeContext';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const DISMISS_THRESHOLD = 80;
 
 interface BottomSheetModalProps {
     visible: boolean;
@@ -31,6 +36,24 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
 }) => {
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
+    const translateY = useRef(new Animated.Value(0)).current;
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Reset when modal opens
+    React.useEffect(() => {
+        if (visible) {
+            translateY.setValue(0);
+        }
+    }, [visible]);
+
+    const handleClose = () => {
+        // Just call onClose - the Modal's animationType="slide" handles the animation
+        onClose();
+    };
+
+
+
+
 
     return (
         <Modal
@@ -41,34 +64,34 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
         >
             <View style={styles.overlay}>
                 {/* Backdrop */}
+
                 <TouchableOpacity
-                    style={styles.backdrop}
+                    style={StyleSheet.absoluteFill}
                     activeOpacity={1}
-                    onPress={onClose}
+                    onPress={handleClose}
                 />
 
                 {/* Modal Content */}
-                <View
+                <Animated.View
                     style={[
                         styles.container,
                         {
                             backgroundColor: colors.background,
                             maxHeight,
-                            paddingBottom: insets.bottom + 20,
+                            paddingBottom: Math.max(insets.bottom, 20),
+                            transform: [{ translateY }],
                         }
                     ]}
                 >
-                    {/* Handle */}
-                    <View style={styles.handleContainer}>
-                        <View style={[styles.handle, { backgroundColor: colors.border }]} />
-                    </View>
+
+
 
                     {/* Header */}
                     <View style={[styles.header, { borderBottomColor: colors.border }]}>
                         <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
                         <TouchableOpacity
                             style={[styles.closeButton, { backgroundColor: colors.surface }]}
-                            onPress={onClose}
+                            onPress={handleClose}
                         >
                             <Ionicons name="close" size={20} color={colors.text} />
                         </TouchableOpacity>
@@ -78,10 +101,11 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
                     <ScrollView
                         contentContainerStyle={styles.contentContainer}
                         showsVerticalScrollIndicator={true}
+                        bounces={true}
                     >
                         {children}
                     </ScrollView>
-                </View>
+                </Animated.View>
             </View>
         </Modal>
     );
@@ -94,22 +118,32 @@ const styles = StyleSheet.create({
     },
     backdrop: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        backgroundColor: '#000',
     },
     container: {
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         minHeight: 300,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 20,
     },
-    handleContainer: {
+    handleArea: {
         alignItems: 'center',
-        paddingTop: 12,
-        paddingBottom: 8,
+        paddingVertical: 12,
+        cursor: 'grab',
     },
     handle: {
-        width: 40,
-        height: 4,
-        borderRadius: 2,
+        width: 48,
+        height: 6,
+        borderRadius: 3,
+        marginBottom: 6,
+    },
+    swipeHint: {
+        fontSize: 11,
+        fontWeight: '500',
     },
     header: {
         flexDirection: 'row',
