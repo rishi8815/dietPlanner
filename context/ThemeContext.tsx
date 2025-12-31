@@ -68,7 +68,8 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const deviceColorScheme = useDeviceColorScheme();
-    const [themeMode, setThemeModeState] = useState<ThemeMode>('light');
+    // Default to 'system' to automatically follow device theme
+    const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
     const [isLoading, setIsLoading] = useState(true);
 
     // Load saved theme preference on mount
@@ -82,6 +83,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (savedTheme) {
                 setThemeModeState(savedTheme as ThemeMode);
             }
+            // If no saved preference, keep 'system' as default
         } catch (error) {
             console.error('Error loading theme preference:', error);
         } finally {

@@ -1,6 +1,6 @@
 import DateTimeDisplay from "@/components/DateTimeDisplay";
 import { useMealPlan } from "../../components/MealPlanContext";
-import { useTheme } from "../../components/ThemeContext";
+import { useTheme } from "../../context/ThemeContext";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import {
@@ -18,7 +18,7 @@ const { width } = Dimensions.get("window");
 
 
 
-  
+
 // Home Screen Component
 const HomeScreen = ({ onNavigate }: { onNavigate?: (tab: string) => void }) => {
   const [selectedView, setSelectedView] = useState("Daily");

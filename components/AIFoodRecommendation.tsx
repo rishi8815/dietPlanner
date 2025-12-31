@@ -10,8 +10,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import {useTheme} from "./../context/ThemeContext"
 import { useMealPlan } from "./MealPlanContext";
-import { useTheme } from "./ThemeContext";
 
 interface FoodItem {
   id: string;

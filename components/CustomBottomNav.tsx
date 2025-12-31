@@ -1,4 +1,4 @@
-import { useTheme } from '@/components/ThemeContext';
+import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export interface NavItem {
   id: string;
@@ -27,9 +28,16 @@ export const CustomBottomNav: React.FC<CustomBottomNavProps> = ({
   onTabPress,
 }) => {
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.bottomNav, { backgroundColor: colors.surface }]}>
+    <View style={[
+      styles.bottomNav,
+      {
+        backgroundColor: colors.surface,
+        paddingBottom: Math.max(insets.bottom, 12),
+      }
+    ]}>
       {items.map((item, index) => {
         const isActive = activeTab === item.id;
 

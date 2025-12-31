@@ -48,16 +48,16 @@ const StatsScreen = () => {
     },
   };
 
-  const StatCard = ({ 
-    icon, 
-    color, 
-    title, 
+  const StatCard = ({
+    icon,
+    color,
+    title,
     value,
     target
-  }: { 
-    icon: string; 
-    color: string; 
-    title: string; 
+  }: {
+    icon: string;
+    color: string;
+    title: string;
     value: number;
     target: number;
   }) => (

@@ -1,6 +1,6 @@
-import { useTheme } from '../../components/ThemeContext';
-import { useAuth } from '../../components/AuthContext';
-import { showToast } from '../../components/ToastConfig';
+import { useTheme, ThemeMode } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
+import { showToast } from '@/components/ToastConfig';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
@@ -11,13 +11,29 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from "react-native-safe-area-context"
 
 const SettingsScreen = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const { isDark, toggleTheme, colors } = useTheme();
+  const [showThemeModal, setShowThemeModal] = useState(false);
+  const { isDark, themeMode, setThemeMode, colors } = useTheme();
   const { signOut, user } = useAuth();
+
+  const getThemeModeLabel = (mode: ThemeMode) => {
+    switch (mode) {
+      case 'system': return 'System';
+      case 'light': return 'Light';
+      case 'dark': return 'Dark';
+    }
+  };
+
+  const handleThemeSelect = (mode: ThemeMode) => {
+    setThemeMode(mode);
+    setShowThemeModal(false);
+    showToast.success('Theme Updated', `Theme set to ${getThemeModeLabel(mode)}`);
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -102,13 +118,10 @@ const SettingsScreen = () => {
             showArrow={false}
           />
           <SettingItem
-            icon="moon"
-            title="Dark Mode"
-            subtitle="Use dark theme"
-            showSwitch={true}
-            switchValue={isDark}
-            onSwitchChange={toggleTheme}
-            showArrow={false}
+            icon="color-palette"
+            title="Theme"
+            subtitle={getThemeModeLabel(themeMode)}
+            onPress={() => setShowThemeModal(true)}
           />
         </View>
 
@@ -189,6 +202,59 @@ const SettingsScreen = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Theme Selection Modal */}
+      <Modal
+        visible={showThemeModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowThemeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowThemeModal(false)}
+          />
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <View style={styles.modalHandle} />
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Choose Theme</Text>
+
+            {(['system', 'light', 'dark'] as ThemeMode[]).map((mode) => (
+              <TouchableOpacity
+                key={mode}
+                style={[
+                  styles.themeOption,
+                  { backgroundColor: themeMode === mode ? colors.primaryLight : 'transparent' }
+                ]}
+                onPress={() => handleThemeSelect(mode)}
+              >
+                <Ionicons
+                  name={mode === 'system' ? 'phone-portrait-outline' : mode === 'light' ? 'sunny-outline' : 'moon-outline'}
+                  size={22}
+                  color={themeMode === mode ? colors.primary : colors.text}
+                />
+                <Text style={[
+                  styles.themeOptionText,
+                  { color: themeMode === mode ? colors.primary : colors.text }
+                ]}>
+                  {getThemeModeLabel(mode)}
+                </Text>
+                {themeMode === mode && (
+                  <Ionicons name="checkmark" size={22} color={colors.primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              style={[styles.modalCancelButton, { borderTopColor: colors.border }]}
+              onPress={() => setShowThemeModal(false)}
+            >
+              <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -265,5 +331,59 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 12,
     marginHorizontal: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: '100%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 8,
+    paddingBottom: 34,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ccc',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  themeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginHorizontal: 12,
+    borderRadius: 12,
+    gap: 14,
+  },
+  themeOptionText: {
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1,
+  },
+  modalCancelButton: {
+    borderTopWidth: 1,
+    paddingVertical: 16,
+    marginTop: 12,
+    marginHorizontal: 20,
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });

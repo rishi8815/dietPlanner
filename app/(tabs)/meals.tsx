@@ -1,7 +1,7 @@
 import AIFoodRecommendation from '@/components/AIFoodRecommendation';
 import CalendarModal from '../../components/ui/CalendarModal';
 import { useMealPlan } from '@/components/MealPlanContext';
-import { useTheme } from '@/components/ThemeContext';
+import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {

@@ -1,9 +1,11 @@
 import { useMealPlan } from '../../components/MealPlanContext';
-import { useTheme } from '@/components/ThemeContext';
+import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { useProfile } from '@/context/ProfileContext';
 import {
-  
+
   ScrollView,
   StyleSheet,
   Text,
@@ -11,12 +13,39 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import {SafeAreaView,}from "react-native-safe-area-context"
+import { SafeAreaView, } from "react-native-safe-area-context"
 const ProfileScreen = () => {
   const { getTotalNutrition, nutritionalData } = useMealPlan();
   const totalNutrition = getTotalNutrition();
   const { colors, isDark } = useTheme();
   const router = useRouter()
+  const { user } = useAuth()
+  const { profile, setShowOnboarding } = useProfile();
+
+  const handleEditProfile = () => {
+    setShowOnboarding(true);
+  };
+
+  const getGoalLabel = (goal: string | null) => {
+    switch (goal) {
+      case 'weight_loss': return 'Lose Weight';
+      case 'maintenance': return 'Maintain Weight';
+      case 'weight_gain': return 'Gain Weight';
+      case 'muscle_build': return 'Build Muscle';
+      default: return 'Not set';
+    }
+  };
+
+  const getActivityLabel = (level: string | null) => {
+    switch (level) {
+      case 'sedentary': return 'Sedentary';
+      case 'light': return 'Lightly Active';
+      case 'moderate': return 'Moderately Active';
+      case 'active': return 'Active';
+      case 'very_active': return 'Very Active';
+      default: return 'Not set';
+    }
+  };
   const ProfileCard = ({
     icon,
     color,
@@ -84,7 +113,7 @@ const ProfileScreen = () => {
         {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Profile</Text>
-          <TouchableOpacity onPress={()=>router.push("./settings")} style={styles.headerButton}>
+          <TouchableOpacity onPress={() => router.push("./settings")} style={styles.headerButton}>
             <Ionicons name="settings-outline" size={24} color={colors.text} />
           </TouchableOpacity>
         </View>
@@ -93,11 +122,23 @@ const ProfileScreen = () => {
         <View style={styles.userSection}>
           <View style={[styles.avatarContainer, { backgroundColor: colors.surface }]}>
             <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-              <Text style={styles.avatarText}>T</Text>
+              <Text style={styles.avatarText}>
+                {profile?.name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase()}
+              </Text>
             </View>
             <View style={styles.userInfo}>
-              <Text style={[styles.userName, { color: colors.text }]}>Tanim</Text>
-              <Text style={[styles.userEmail, { color: colors.textSecondary }]}>tanim@example.com</Text>
+              <Text style={[styles.userName, { color: colors.text }]}>
+                {profile?.name || user?.email?.split("@")[0]}
+              </Text>
+              <Text style={[styles.userEmail, { color: colors.textSecondary }]}>{user?.email}</Text>
+              {profile?.goal && (
+                <View style={styles.goalBadge}>
+                  <Ionicons name="trophy-outline" size={12} color={colors.primary} />
+                  <Text style={[styles.goalText, { color: colors.primary }]}>
+                    {getGoalLabel(profile.goal)}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -170,7 +211,10 @@ const ProfileScreen = () => {
         <View style={styles.actionsSection}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Quick Actions</Text>
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: colors.surface }]}
+              onPress={handleEditProfile}
+            >
               <Ionicons name="person-outline" size={20} color={colors.primary} />
               <Text style={[styles.actionText, { color: colors.text }]}>Edit Profile</Text>
             </TouchableOpacity>
@@ -339,10 +383,20 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     gap: 12,
-    
+
   },
   actionText: {
     fontSize: 16,
+    fontWeight: '500',
+  },
+  goalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 4,
+  },
+  goalText: {
+    fontSize: 12,
     fontWeight: '500',
   },
 });

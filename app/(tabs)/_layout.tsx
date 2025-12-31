@@ -1,7 +1,7 @@
 import { CustomBottomNav, NAV_ITEMS } from '@/components/CustomBottomNav';
-import { useTheme } from '@/components/ThemeContext';
+import { useTheme } from '@/context/ThemeContext';
 import React, { useState } from 'react';
-import { StyleSheet, View,StatusBar } from 'react-native';
+import { StyleSheet, View, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
@@ -28,7 +28,10 @@ export default function TabLayout() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <StatusBar hidden={false} />
       {/* Screen Content */}
       <View style={styles.content}>

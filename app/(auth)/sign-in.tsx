@@ -11,8 +11,8 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { Link, router, Href } from 'expo-router';
-import { useTheme } from '@/components/ThemeContext';
-import { useAuth } from '@/components/AuthContext';
+import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/components/ToastConfig';
 import { Ionicons } from '@expo/vector-icons';
 
