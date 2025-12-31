@@ -1,6 +1,8 @@
 import { useTheme, ThemeMode } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { showToast } from '@/components/ToastConfig';
+import { BottomSheetModal } from '@/components/ui/BottomSheetModal';
+import { PRIVACY_POLICY, TERMS_OF_SERVICE, HELP_SUPPORT, SUPPORT_EMAIL } from '@/constants/AppInfo';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
@@ -12,12 +14,16 @@ import {
   TouchableOpacity,
   View,
   Modal,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from "react-native-safe-area-context"
 
 const SettingsScreen = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [showThemeModal, setShowThemeModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const { isDark, themeMode, setThemeMode, colors } = useTheme();
   const { signOut, user } = useAuth();
 
@@ -166,23 +172,17 @@ const SettingsScreen = () => {
           <SettingItem
             icon="document-text"
             title="Privacy Policy"
-            onPress={() => {
-              // Open privacy policy
-            }}
+            onPress={() => setShowPrivacyModal(true)}
           />
           <SettingItem
             icon="shield-checkmark"
             title="Terms of Service"
-            onPress={() => {
-              // Open terms of service
-            }}
+            onPress={() => setShowTermsModal(true)}
           />
           <SettingItem
             icon="help-circle"
             title="Help & Support"
-            onPress={() => {
-              // Open help
-            }}
+            onPress={() => setShowHelpModal(true)}
           />
         </View>
 
@@ -255,6 +255,69 @@ const SettingsScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Privacy Policy Modal */}
+      <BottomSheetModal
+        visible={showPrivacyModal}
+        onClose={() => setShowPrivacyModal(false)}
+        title={PRIVACY_POLICY.title}
+      >
+        <Text style={[styles.infoSubheading, { color: colors.textSecondary }]}>
+          Last updated: {PRIVACY_POLICY.lastUpdated}
+        </Text>
+        {PRIVACY_POLICY.sections.map((section, index) => (
+          <View key={index} style={styles.infoSection}>
+            <Text style={[styles.infoHeading, { color: colors.text }]}>{section.heading}</Text>
+            <Text style={[styles.infoContent, { color: colors.textSecondary }]}>{section.content}</Text>
+          </View>
+        ))}
+      </BottomSheetModal>
+
+      {/* Terms of Service Modal */}
+      <BottomSheetModal
+        visible={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        title={TERMS_OF_SERVICE.title}
+      >
+        <Text style={[styles.infoSubheading, { color: colors.textSecondary }]}>
+          Last updated: {TERMS_OF_SERVICE.lastUpdated}
+        </Text>
+        {TERMS_OF_SERVICE.sections.map((section, index) => (
+          <View key={index} style={styles.infoSection}>
+            <Text style={[styles.infoHeading, { color: colors.text }]}>{section.heading}</Text>
+            <Text style={[styles.infoContent, { color: colors.textSecondary }]}>{section.content}</Text>
+          </View>
+        ))}
+      </BottomSheetModal>
+
+      {/* Help & Support Modal */}
+      <BottomSheetModal
+        visible={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+        title={HELP_SUPPORT.title}
+      >
+        {HELP_SUPPORT.sections.map((section, index) => (
+          <View key={index} style={styles.infoSection}>
+            <Text style={[styles.infoHeading, { color: colors.text }]}>{section.heading}</Text>
+            {section.content && (
+              <Text style={[styles.infoContent, { color: colors.textSecondary }]}>{section.content}</Text>
+            )}
+            {section.questions && section.questions.map((faq, faqIndex) => (
+              <View key={faqIndex} style={styles.faqItem}>
+                <Text style={[styles.faqQuestion, { color: colors.text }]}>Q: {faq.q}</Text>
+                <Text style={[styles.faqAnswer, { color: colors.textSecondary }]}>A: {faq.a}</Text>
+              </View>
+            ))}
+          </View>
+        ))}
+        <TouchableOpacity
+          style={[styles.contactButton, { backgroundColor: colors.primary }]}
+          onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
+        >
+          <Ionicons name="mail" size={20} color="#fff" />
+          <Text style={styles.contactButtonText}>Contact Support</Text>
+        </TouchableOpacity>
+      </BottomSheetModal>
     </SafeAreaView>
   );
 };
@@ -385,5 +448,49 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  infoSubheading: {
+    fontSize: 13,
+    marginBottom: 20,
+    fontStyle: 'italic',
+  },
+  infoSection: {
+    marginBottom: 24,
+  },
+  infoHeading: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  infoContent: {
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  faqItem: {
+    marginTop: 12,
+    paddingLeft: 8,
+  },
+  faqQuestion: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  faqAnswer: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  contactButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 10,
+    marginTop: 20,
+  },
+  contactButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });
