@@ -37,6 +37,7 @@ const lightColors = {
     switchThumb: '#f4f3f4',
     statusSuccess: '#4CAF50',
     statusError: '#FF5722',
+    statusWarning: '#FFC107',
 };
 
 // Dark theme colors
@@ -62,6 +63,7 @@ const darkColors: typeof lightColors = {
     switchThumb: '#707070',
     statusSuccess: '#66BB6A',
     statusError: '#FF7043',
+    statusWarning: '#FFD54F',
 };
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);

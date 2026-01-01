@@ -1,28 +1,49 @@
-import AIFoodRecommendation from '@/components/AIFoodRecommendation';
+import AIFoodRecommendation, { FoodItem } from '@/components/AIFoodRecommendation';
 import CalendarModal from '../../components/ui/CalendarModal';
-import { useMealPlan } from '@/components/MealPlanContext';
+import { BottomSheetModal } from '@/components/ui/BottomSheetModal';
 import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
+import DailyMealsService, { MealItem } from '@/services/DailyMealsService';
+import { showToast } from '@/components/ToastConfig';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  RefreshControl,
 } from 'react-native';
+
+// Meal type configuration
+const MEAL_TYPES = [
+  { id: 'breakfast', title: 'Breakfast', time: '08:00', icon: 'sunny-outline' },
+  { id: 'lunch', title: 'Lunch', time: '12:30', icon: 'restaurant-outline' },
+  { id: 'dinner', title: 'Dinner', time: '19:00', icon: 'moon-outline' },
+  { id: 'snacks', title: 'Snacks', time: '15:00', icon: 'cafe-outline' },
+] as const;
+
+const MAX_MEALS_PER_SECTION = 2;
 
 const MealsScreen = () => {
   const [showAIRecommendations, setShowAIRecommendations] = useState(false);
   const [showCustomMealModal, setShowCustomMealModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [showMealActionSheet, setShowMealActionSheet] = useState(false);
+  const [selectedMealForAction, setSelectedMealForAction] = useState<MealItem | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
+  const [selectedMealType, setSelectedMealType] = useState<string>('breakfast');
+  const [modalMealType, setModalMealType] = useState<string>('breakfast'); // For modal form
+  const [meals, setMeals] = useState<MealItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+  const [editingMeal, setEditingMeal] = useState<MealItem | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [customMealData, setCustomMealData] = useState({
     name: '',
     calories: '',
@@ -30,133 +51,368 @@ const MealsScreen = () => {
     carbs: '',
     fat: '',
   });
+  const [formErrors, setFormErrors] = useState({
+    name: '',
+    calories: '',
+    protein: '',
+    carbs: '',
+    fat: '',
+  });
 
-  const { colors, isDark } = useTheme();
-  const {
-    meals,
-    updateMeal,
-    removeMeal,
-    getTotalNutrition,
-    addCustomMeal,
-    clearAllMeals,
-    personalInfo,
-    isLoading: contextLoading
-  } = useMealPlan();
+  const { colors } = useTheme();
+  const { user } = useAuth();
 
-  const totalNutrition = getTotalNutrition();
+  // Load meals for selected date
+  const loadMeals = useCallback(async () => {
+    if (!user?.id) return;
 
-  const handleSelectFood = (food: any) => {
-    if (selectedMealId) {
-      updateMeal(selectedMealId, food);
+    try {
+      const dailyMeals = await DailyMealsService.getMealsForDate(user.id, selectedDate);
+      setMeals(dailyMeals?.meals || []);
+      setIsLocked(dailyMeals?.is_locked || false);
+    } catch (error) {
+      console.error('Error loading meals:', error);
+      showToast.error('Error', 'Failed to load meals');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
     }
-    setShowAIRecommendations(false);
-    setSelectedMealId(null);
+  }, [user?.id, selectedDate]);
+
+  useEffect(() => {
+    setIsLoading(true);
+    loadMeals();
+  }, [loadMeals]);
+
+  const onRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    loadMeals();
+  }, [loadMeals]);
+
+  // Get total nutrition
+  const totalNutrition = DailyMealsService.calculateTotalNutrition(meals);
+
+  // Get meals grouped by type
+  const getMealsByType = (type: string) => {
+    return meals.filter(meal => meal.meal_type === type);
   };
 
-  const handleRemoveMeal = (mealId: string) => {
-    Alert.alert(
-      'Remove Meal',
-      'Are you sure you want to remove this meal?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => removeMeal(mealId) },
-      ]
-    );
+  // Check if section is full (max 2 meals)
+  const isSectionFull = (mealType: string) => {
+    return getMealsByType(mealType).length >= MAX_MEALS_PER_SECTION;
   };
 
-  const handleClearAllMeals = () => {
-    Alert.alert(
-      'Clear All Meals',
-      'Are you sure you want to clear all meals? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Clear All', style: 'destructive', onPress: clearAllMeals },
-      ]
-    );
-  };
+  // Handle adding a recommended meal
+  const handleSelectFood = async (food: FoodItem) => {
+    if (!user?.id) return;
 
-  const handleAddCustomMeal = () => {
-    if (!customMealData.name || !customMealData.calories) {
-      Alert.alert('Error', 'Please enter at least a meal name and calories.');
+    // Check if section is full
+    if (isSectionFull(food.meal_type)) {
+      showToast.error('Section Full', `Maximum ${MAX_MEALS_PER_SECTION} meals allowed per section`);
+      setShowAIRecommendations(false);
       return;
     }
 
-    const calories = parseInt(customMealData.calories) || 0;
-    const protein = parseInt(customMealData.protein) || 0;
-    const carbs = parseInt(customMealData.carbs) || 0;
-    const fat = parseInt(customMealData.fat) || 0;
+    try {
+      const newMeal: Omit<MealItem, 'id' | 'added_at'> = {
+        meal_type: food.meal_type,
+        name: food.name,
+        calories: food.calories,
+        protein: food.protein,
+        carbs: food.carbs,
+        fat: food.fat,
+        time: food.time,
+      };
 
-    if (selectedMealId) {
-      addCustomMeal(selectedMealId, customMealData.name, calories, protein, carbs, fat);
-      setShowCustomMealModal(false);
-      setSelectedMealId(null);
-      setCustomMealData({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+      const result = await DailyMealsService.addMeal(user.id, selectedDate, newMeal);
+      if (result) {
+        setMeals(result.meals);
+        showToast.success('Meal Added', `${food.name} added to your ${food.meal_type}`);
+      }
+    } catch (error) {
+      console.error('Error adding meal:', error);
+      showToast.error('Error', 'Failed to add meal');
+    }
+
+    setShowAIRecommendations(false);
+  };
+
+  // Handle meal actions (edit/delete) - opens bottom sheet
+  const handleMealAction = (meal: MealItem) => {
+    if (isLocked) {
+      showToast.error('Locked', 'Past meals cannot be modified');
+      return;
+    }
+
+    setSelectedMealForAction(meal);
+    setShowMealActionSheet(true);
+  };
+
+  // Close meal action sheet
+  const closeMealActionSheet = () => {
+    setShowMealActionSheet(false);
+    setSelectedMealForAction(null);
+  };
+
+  // Handle edit meal
+  const handleEditMeal = () => {
+    if (!selectedMealForAction) return;
+    closeMealActionSheet();
+    setEditingMeal(selectedMealForAction);
+    setIsEditMode(true);
+    setModalMealType(selectedMealForAction.meal_type);
+    setCustomMealData({
+      name: selectedMealForAction.name,
+      calories: selectedMealForAction.calories.toString(),
+      protein: selectedMealForAction.protein.toString(),
+      carbs: selectedMealForAction.carbs.toString(),
+      fat: selectedMealForAction.fat.toString(),
+    });
+    setShowCustomMealModal(true);
+  };
+
+  // Handle delete meal
+  const handleDeleteMeal = async () => {
+    if (!user?.id || !selectedMealForAction) return;
+    closeMealActionSheet();
+    try {
+      const result = await DailyMealsService.removeMeal(user.id, selectedDate, selectedMealForAction.id);
+      if (result) {
+        setMeals(result.meals);
+        showToast.success('Deleted', 'Meal deleted successfully');
+      }
+    } catch (error) {
+      console.error('Error deleting meal:', error);
+      showToast.error('Error', 'Failed to delete meal');
     }
   };
 
-  const handleAIRecommendations = () => {
-    // Simply open AI recommendations - backend will handle authentication
-    setShowAIRecommendations(true);
+  // Handle clearing all meals for the day - immediate delete without confirmation
+  const handleClearAllMeals = async () => {
+    if (isLocked) {
+      showToast.error('Locked', 'Past meals cannot be modified');
+      return;
+    }
+
+    if (meals.length === 0) {
+      showToast.info('No Meals', 'No meals to clear');
+      return;
+    }
+
+    if (!user?.id) return;
+
+    try {
+      await DailyMealsService.clearMealsForDate(user.id, selectedDate);
+      setMeals([]);
+      showToast.success('Cleared', 'All meals cleared');
+      // Refresh the data
+      loadMeals();
+    } catch (error) {
+      console.error('Error clearing meals:', error);
+      showToast.error('Error', 'Failed to clear meals');
+    }
   };
 
-  const MealItem = ({ meal }: { meal: any }) => (
-    <View style={[styles.mealItem, { backgroundColor: colors.surface }]}>
-      <View style={styles.mealHeader}>
-        <View style={styles.mealInfo}>
-          <Text style={[styles.mealTitle, { color: colors.text }]}>{meal.title}</Text>
-          <Text style={[styles.mealTime, { color: colors.textSecondary }]}>{meal.time}</Text>
-        </View>
-        <View style={styles.mealActions}>
-          {meal.hasFood && (
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() => handleRemoveMeal(meal.id)}
-            >
-              <Ionicons name="trash-outline" size={20} color={colors.statusError} />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => {
-              setSelectedMealId(meal.id);
-              setShowAIRecommendations(true);
-            }}
-          >
-            <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
-          </TouchableOpacity>
-        </View>
-      </View>
+  // Handle adding/updating custom meal
+  const handleSaveCustomMeal = async () => {
+    // Clear previous errors
+    const newErrors = { name: '', calories: '', protein: '', carbs: '', fat: '' };
+    let hasError = false;
 
-      {meal.food ? (
-        <View style={[styles.foodInfo, { borderTopColor: colors.border }]}>
-          <Text style={[styles.foodName, { color: colors.text }]}>{meal.food.name}</Text>
-          <View style={styles.nutritionRow}>
-            <Text style={[styles.nutritionText, { color: colors.textSecondary }]}>
-              {meal.food.calories} kcal
-            </Text>
-            <Text style={[styles.nutritionText, { color: colors.textSecondary }]}>
-              {meal.food.protein}g protein
-            </Text>
-            <Text style={[styles.nutritionText, { color: colors.textSecondary }]}>
-              {meal.food.carbs}g carbs
-            </Text>
-            <Text style={[styles.nutritionText, { color: colors.textSecondary }]}>
-              {meal.food.fat}g fat
+    // Validate all required fields
+    const trimmedName = customMealData.name.trim();
+    const calories = parseInt(customMealData.calories);
+    const protein = parseInt(customMealData.protein);
+    const carbs = parseInt(customMealData.carbs);
+    const fat = parseInt(customMealData.fat);
+
+    if (!trimmedName) {
+      newErrors.name = 'Please enter a meal name';
+      hasError = true;
+    }
+    if (!customMealData.calories || isNaN(calories) || calories <= 0) {
+      newErrors.calories = 'Please enter valid calories';
+      hasError = true;
+    }
+    if (!customMealData.protein || isNaN(protein) || protein < 0) {
+      newErrors.protein = 'Please enter valid protein';
+      hasError = true;
+    }
+    if (!customMealData.carbs || isNaN(carbs) || carbs < 0) {
+      newErrors.carbs = 'Please enter valid carbs';
+      hasError = true;
+    }
+    if (!customMealData.fat || isNaN(fat) || fat < 0) {
+      newErrors.fat = 'Please enter valid fat';
+      hasError = true;
+    }
+
+    setFormErrors(newErrors);
+
+    if (hasError) {
+      return;
+    }
+
+    if (!user?.id) return;
+
+    // Check section limit for new meals
+    if (!isEditMode && isSectionFull(modalMealType)) {
+      showToast.error('Section Full', `Maximum ${MAX_MEALS_PER_SECTION} meals allowed per section`);
+      return;
+    }
+
+    const mealType = MEAL_TYPES.find(t => t.id === modalMealType);
+
+    try {
+      if (isEditMode && editingMeal) {
+        // Update existing meal
+        const updates: Partial<MealItem> = {
+          name: trimmedName,
+          calories: calories,
+          protein: protein,
+          carbs: carbs,
+          fat: fat,
+        };
+
+        const result = await DailyMealsService.updateMeal(user.id, selectedDate, editingMeal.id, updates);
+        if (result) {
+          setMeals(result.meals);
+          showToast.success('Updated', `${trimmedName} updated successfully`);
+        }
+      } else {
+        // Add new meal
+        const newMeal: Omit<MealItem, 'id' | 'added_at'> = {
+          meal_type: modalMealType as MealItem['meal_type'],
+          name: trimmedName,
+          calories: calories,
+          protein: protein,
+          carbs: carbs,
+          fat: fat,
+          time: mealType?.time || '12:00',
+        };
+
+        const result = await DailyMealsService.addMeal(user.id, selectedDate, newMeal);
+        if (result) {
+          setMeals(result.meals);
+          showToast.success('Meal Added', `${trimmedName} added successfully`);
+        }
+      }
+
+      // Reset modal state
+      setShowCustomMealModal(false);
+      setCustomMealData({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+      setEditingMeal(null);
+      setIsEditMode(false);
+    } catch (error) {
+      console.error('Error saving meal:', error);
+      showToast.error('Error', 'Failed to save meal');
+    }
+  };
+
+  // Close custom meal modal
+  const closeCustomMealModal = () => {
+    setShowCustomMealModal(false);
+    setCustomMealData({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+    setFormErrors({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+    setEditingMeal(null);
+    setIsEditMode(false);
+    setModalMealType('breakfast');
+  };
+
+  // Handle date selection
+  const handleDateSelect = (date: string) => {
+    setSelectedDate(date);
+    setShowCalendarModal(false);
+  };
+
+  // Check if date is today or future
+  const isEditableDate = () => {
+    const today = new Date().toISOString().split('T')[0];
+    return selectedDate >= today && !isLocked;
+  };
+
+  // Meal section component
+  const MealSection = ({ type }: { type: typeof MEAL_TYPES[number] }) => {
+    const typeMeals = getMealsByType(type.id);
+    const sectionFull = typeMeals.length >= MAX_MEALS_PER_SECTION;
+
+    return (
+      <View style={[styles.mealSection, { backgroundColor: colors.surface }]}>
+        <View style={styles.mealSectionHeader}>
+          <View style={styles.mealTypeInfo}>
+            <Ionicons name={type.icon as any} size={20} color={colors.primary} />
+            <Text style={[styles.mealTypeTitle, { color: colors.text }]}>{type.title}</Text>
+            <Text style={[styles.mealTypeTime, { color: colors.textSecondary }]}>
+              {typeMeals.length}/{MAX_MEALS_PER_SECTION}
             </Text>
           </View>
+          {isEditableDate() && !sectionFull && (
+            <TouchableOpacity
+              style={styles.addMealButton}
+              onPress={() => {
+                setSelectedMealType(type.id);
+                setShowAIRecommendations(true);
+              }}
+            >
+              <Ionicons name="add-circle" size={28} color={colors.primary} />
+            </TouchableOpacity>
+          )}
+          {sectionFull && (
+            <View style={[styles.fullBadge, { backgroundColor: colors.statusSuccess + '20' }]}>
+              <Text style={[styles.fullBadgeText, { color: colors.statusSuccess }]}>Full</Text>
+            </View>
+          )}
         </View>
-      ) : (
-        <View style={[styles.emptyMeal, { borderTopColor: colors.border }]}>
-          <Text style={[styles.emptyText, { color: colors.textMuted }]}>No meal planned</Text>
-          <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>Tap + to add a meal</Text>
-        </View>
-      )}
-    </View>
-  );
 
+        {typeMeals.length > 0 ? (
+          <View style={styles.mealsList}>
+            {typeMeals.map((meal) => (
+              <View key={meal.id} style={[styles.mealItem, { borderColor: colors.border }]}>
+                <View style={styles.mealItemContent}>
+                  <Text style={[styles.mealName, { color: colors.text }]}>{meal.name}</Text>
+                  <View style={styles.mealNutrition}>
+                    <Text style={[styles.nutritionBadge, { color: colors.primary }]}>
+                      {meal.calories} kcal
+                    </Text>
+                    <Text style={[styles.nutritionText, { color: colors.textSecondary }]}>
+                      P: {meal.protein}g
+                    </Text>
+                    <Text style={[styles.nutritionText, { color: colors.textSecondary }]}>
+                      C: {meal.carbs}g
+                    </Text>
+                    <Text style={[styles.nutritionText, { color: colors.textSecondary }]}>
+                      F: {meal.fat}g
+                    </Text>
+                  </View>
+                </View>
+                {isEditableDate() && (
+                  <TouchableOpacity
+                    style={styles.mealActionButton}
+                    onPress={() => handleMealAction(meal)}
+                  >
+                    <Ionicons name="ellipsis-vertical" size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyMealSection}>
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+              No {type.title.toLowerCase()} logged
+            </Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Nutrition Summary
   const NutritionSummary = () => (
     <View style={[styles.nutritionSummary, { backgroundColor: colors.surface }]}>
-      <Text style={[styles.summaryTitle, { color: colors.text }]}>Today's Nutrition</Text>
+      <Text style={[styles.summaryTitle, { color: colors.text }]}>
+        {DailyMealsService.formatDateForDisplay(selectedDate)}'s Nutrition
+      </Text>
       <View style={styles.summaryGrid}>
         <View style={styles.summaryItem}>
           <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Calories</Text>
@@ -175,204 +431,318 @@ const MealsScreen = () => {
           <Text style={[styles.summaryValue, { color: colors.text }]}>{totalNutrition.fat}g</Text>
         </View>
       </View>
-
-      {personalInfo && (
-        <View style={[styles.targetInfo, { borderTopColor: colors.border }]}>
-          <Text style={[styles.targetLabel, { color: colors.textSecondary }]}>Target: {personalInfo.targetCalories} kcal</Text>
-          <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${Math.min((totalNutrition.calories / parseInt(personalInfo.targetCalories)) * 100, 100)}%` }
-              ]}
-            />
-          </View>
-        </View>
-      )}
     </View>
   );
 
-  const CustomMealModal = () => (
+  // Custom Meal Modal JSX - stored as variable to be rendered inline
+  const customMealModalJSX = (
     <Modal
       visible={showCustomMealModal}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={() => setShowCustomMealModal(false)}
+      onRequestClose={closeCustomMealModal}
     >
-      <SafeAreaView style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+      <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
         <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={() => setShowCustomMealModal(false)}>
+          <TouchableOpacity onPress={closeCustomMealModal}>
             <Ionicons name="close" size={24} color={colors.text} />
           </TouchableOpacity>
-          <Text style={[styles.modalTitle, { color: colors.text }]}>Add Custom Meal</Text>
+          <Text style={[styles.modalTitle, { color: colors.text }]}>
+            {isEditMode ? 'Edit Meal' : 'Add Custom Meal'}
+          </Text>
           <View style={{ width: 24 }} />
         </View>
 
         <ScrollView style={styles.modalContent}>
+          {/* Meal Type Selector - Only show when adding new meal */}
+          {!isEditMode && (
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Meal Type</Text>
+              <View style={styles.mealTypeSelector}>
+                {MEAL_TYPES.map((type) => (
+                  <TouchableOpacity
+                    key={type.id}
+                    style={[
+                      styles.mealTypeOption,
+                      {
+                        backgroundColor: modalMealType === type.id ? colors.primary : colors.surface,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    onPress={() => setModalMealType(type.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.mealTypeOptionText,
+                        { color: modalMealType === type.id ? '#fff' : colors.text },
+                      ]}
+                    >
+                      {type.title}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: colors.text }]}>Meal Name</Text>
+            <Text style={[styles.inputLabel, { color: colors.text }]}>Meal Name *</Text>
             <TextInput
-              style={[styles.textInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+              style={[
+                styles.textInput,
+                { backgroundColor: colors.surface, color: colors.text },
+                formErrors.name ? { borderColor: colors.statusError, borderWidth: 1 } : { borderColor: colors.border }
+              ]}
               value={customMealData.name}
-              onChangeText={(text) => setCustomMealData(prev => ({ ...prev, name: text }))}
+              onChangeText={(text) => {
+                setCustomMealData(prev => ({ ...prev, name: text }));
+                if (formErrors.name) setFormErrors(prev => ({ ...prev, name: '' }));
+              }}
               placeholder="Enter meal name"
               placeholderTextColor={colors.textMuted}
             />
+            {formErrors.name ? (
+              <Text style={[styles.errorText, { color: colors.statusError }]}>{formErrors.name}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: colors.text }]}>Calories</Text>
+            <Text style={[styles.inputLabel, { color: colors.text }]}>Calories *</Text>
             <TextInput
-              style={[styles.textInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+              style={[
+                styles.textInput,
+                { backgroundColor: colors.surface, color: colors.text },
+                formErrors.calories ? { borderColor: colors.statusError, borderWidth: 1 } : { borderColor: colors.border }
+              ]}
               value={customMealData.calories}
-              onChangeText={(text) => setCustomMealData(prev => ({ ...prev, calories: text }))}
+              onChangeText={(text) => {
+                setCustomMealData(prev => ({ ...prev, calories: text }));
+                if (formErrors.calories) setFormErrors(prev => ({ ...prev, calories: '' }));
+              }}
               placeholder="Enter calories"
               placeholderTextColor={colors.textMuted}
               keyboardType="numeric"
             />
+            {formErrors.calories ? (
+              <Text style={[styles.errorText, { color: colors.statusError }]}>{formErrors.calories}</Text>
+            ) : null}
           </View>
 
           <View style={styles.nutritionInputs}>
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>Protein (g)</Text>
+            <View style={styles.inputGroupSmall}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Protein (g) *</Text>
               <TextInput
-                style={[styles.textInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+                style={[
+                  styles.textInput,
+                  { backgroundColor: colors.surface, color: colors.text },
+                  formErrors.protein ? { borderColor: colors.statusError, borderWidth: 1 } : { borderColor: colors.border }
+                ]}
                 value={customMealData.protein}
-                onChangeText={(text) => setCustomMealData(prev => ({ ...prev, protein: text }))}
+                onChangeText={(text) => {
+                  setCustomMealData(prev => ({ ...prev, protein: text }));
+                  if (formErrors.protein) setFormErrors(prev => ({ ...prev, protein: '' }));
+                }}
                 placeholder="0"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
               />
+              {formErrors.protein ? (
+                <Text style={[styles.errorText, { color: colors.statusError }]}>{formErrors.protein}</Text>
+              ) : null}
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>Carbs (g)</Text>
+            <View style={styles.inputGroupSmall}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Carbs (g) *</Text>
               <TextInput
-                style={[styles.textInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+                style={[
+                  styles.textInput,
+                  { backgroundColor: colors.surface, color: colors.text },
+                  formErrors.carbs ? { borderColor: colors.statusError, borderWidth: 1 } : { borderColor: colors.border }
+                ]}
                 value={customMealData.carbs}
-                onChangeText={(text) => setCustomMealData(prev => ({ ...prev, carbs: text }))}
+                onChangeText={(text) => {
+                  setCustomMealData(prev => ({ ...prev, carbs: text }));
+                  if (formErrors.carbs) setFormErrors(prev => ({ ...prev, carbs: '' }));
+                }}
                 placeholder="0"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
               />
+              {formErrors.carbs ? (
+                <Text style={[styles.errorText, { color: colors.statusError }]}>{formErrors.carbs}</Text>
+              ) : null}
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>Fat (g)</Text>
+            <View style={styles.inputGroupSmall}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Fat (g) *</Text>
               <TextInput
-                style={[styles.textInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+                style={[
+                  styles.textInput,
+                  { backgroundColor: colors.surface, color: colors.text },
+                  formErrors.fat ? { borderColor: colors.statusError, borderWidth: 1 } : { borderColor: colors.border }
+                ]}
                 value={customMealData.fat}
-                onChangeText={(text) => setCustomMealData(prev => ({ ...prev, fat: text }))}
+                onChangeText={(text) => {
+                  setCustomMealData(prev => ({ ...prev, fat: text }));
+                  if (formErrors.fat) setFormErrors(prev => ({ ...prev, fat: '' }));
+                }}
                 placeholder="0"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
               />
+              {formErrors.fat ? (
+                <Text style={[styles.errorText, { color: colors.statusError }]}>{formErrors.fat}</Text>
+              ) : null}
             </View>
           </View>
 
-          <TouchableOpacity style={[styles.addCustomButton, { backgroundColor: colors.primary }]} onPress={handleAddCustomMeal}>
-            <Text style={styles.addCustomButtonText}>Add Meal</Text>
+          <TouchableOpacity
+            style={[styles.addCustomButton, { backgroundColor: colors.primary }]}
+            onPress={handleSaveCustomMeal}
+          >
+            <Text style={styles.addCustomButtonText}>{isEditMode ? 'Update Meal' : 'Add Meal'}</Text>
           </TouchableOpacity>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 
-  if (contextLoading) {
+  if (isLoading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading your meals...</Text>
-        </View>
-      </SafeAreaView>
+      <View style={[styles.container, styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading your meals...</Text>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[colors.primary]} />
+        }
+      >
         {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>My Meals</Text>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerButton} onPress={handleClearAllMeals}>
-              <Ionicons name="trash-outline" size={20} color={colors.statusError} />
-            </TouchableOpacity>
+            {meals.length > 0 && isEditableDate() && (
+              <TouchableOpacity style={styles.headerButton} onPress={handleClearAllMeals}>
+                <Ionicons name="trash-outline" size={20} color={colors.statusError} />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.headerButton} onPress={() => setShowCalendarModal(true)}>
               <Ionicons name="calendar-outline" size={24} color={colors.text} />
             </TouchableOpacity>
           </View>
         </View>
 
+        {/* Date Display */}
+        <TouchableOpacity
+          style={[styles.dateDisplay, { backgroundColor: colors.surface }]}
+          onPress={() => setShowCalendarModal(true)}
+        >
+          <Ionicons name="calendar" size={20} color={colors.primary} />
+          <Text style={[styles.dateText, { color: colors.text }]}>
+            {DailyMealsService.formatDateForDisplay(selectedDate)}
+          </Text>
+          {isLocked && (
+            <View style={[styles.lockedBadge, { backgroundColor: colors.statusWarning + '20' }]}>
+              <Ionicons name="lock-closed" size={14} color={colors.statusWarning} />
+              <Text style={[styles.lockedText, { color: colors.statusWarning }]}>Locked</Text>
+            </View>
+          )}
+          <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
+
         {/* Nutrition Summary */}
         <NutritionSummary />
 
-        {/* Meals List */}
+        {/* Meal Sections */}
         <View style={styles.mealsContainer}>
-          <View style={styles.mealsHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              {selectedDate === new Date().toISOString().split('T')[0]
-                ? "Today's Meals"
-                : new Date(selectedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + "'s Meals"
-              }
-            </Text>
-            <TouchableOpacity onPress={() => setShowCalendarModal(true)}>
-              <Text style={[styles.changeDateText, { color: colors.primary }]}>Change Date</Text>
-            </TouchableOpacity>
-          </View>
-          {meals.map((meal) => (
-            <MealItem key={meal.id} meal={meal} />
+          {MEAL_TYPES.map((type) => (
+            <MealSection key={type.id} type={type} />
           ))}
         </View>
 
         {/* Quick Actions */}
-        <View style={styles.quickActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.primaryLight }]}
-            onPress={handleAIRecommendations}
-          >
-            <Ionicons name="bulb" size={20} color={colors.primary} />
-            <Text style={[styles.actionText, { color: colors.primary }]}>
-              Get Meal Recommendations
-            </Text>
-          </TouchableOpacity>
+        {isEditableDate() && (
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: colors.primaryLight }]}
+              onPress={() => {
+                setSelectedMealType('breakfast');
+                setShowAIRecommendations(true);
+              }}
+            >
+              <Ionicons name="bulb" size={20} color={colors.primary} />
+              <Text style={[styles.actionText, { color: colors.primary }]}>
+                Get Meal Recommendations
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.primaryLight }]}
-            onPress={() => {
-              setSelectedMealId('breakfast'); // Default to breakfast
-              setShowCustomMealModal(true);
-            }}
-          >
-            <Ionicons name="add" size={20} color={colors.primary} />
-            <Text style={[styles.actionText, { color: colors.primary }]}>Add Custom Meal</Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: colors.primaryLight }]}
+              onPress={() => {
+                setModalMealType('breakfast');
+                setShowCustomMealModal(true);
+              }}
+            >
+              <Ionicons name="add" size={20} color={colors.primary} />
+              <Text style={[styles.actionText, { color: colors.primary }]}>Add Custom Meal</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       {/* AI Food Recommendation Modal */}
       <AIFoodRecommendation
         visible={showAIRecommendations}
-        onClose={() => {
-          setShowAIRecommendations(false);
-          setSelectedMealId(null);
-        }}
+        onClose={() => setShowAIRecommendations(false)}
         onSelectFood={handleSelectFood}
-        selectedMealType={selectedMealId || 'breakfast'}
+        selectedMealType={selectedMealType}
       />
 
       {/* Custom Meal Modal */}
-      <CustomMealModal />
+      {customMealModalJSX}
 
       {/* Calendar Modal */}
       <CalendarModal
         visible={showCalendarModal}
         onClose={() => setShowCalendarModal(false)}
         selectedDate={selectedDate}
-        onDateSelect={setSelectedDate}
+        onDateSelect={handleDateSelect}
       />
-    </SafeAreaView>
+
+      {/* Meal Action Bottom Sheet */}
+      <BottomSheetModal
+        visible={showMealActionSheet}
+        onClose={closeMealActionSheet}
+        title={selectedMealForAction?.name || 'Meal Options'}
+        maxHeight={300}
+      >
+        <View style={styles.actionSheetContent}>
+
+          <TouchableOpacity
+            style={[styles.actionSheetButton, { backgroundColor: colors.primaryLight }]}
+            onPress={handleEditMeal}
+          >
+            <Ionicons name="create-outline" size={22} color={colors.primary} />
+            <Text style={[styles.actionSheetButtonText, { color: colors.primary }]}>Edit Meal</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionSheetButton, { backgroundColor: colors.statusError + '15' }]}
+            onPress={handleDeleteMeal}
+          >
+            <Ionicons name="trash-outline" size={22} color={colors.statusError} />
+            <Text style={[styles.actionSheetButtonText, { color: colors.statusError }]}>Delete Meal</Text>
+          </TouchableOpacity>
+        </View>
+      </BottomSheetModal>
+    </View>
   );
 };
 
@@ -383,7 +753,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   loadingContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -397,10 +766,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 20,
+    paddingBottom: 16,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
   },
   headerActions: {
@@ -409,6 +778,33 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     padding: 8,
+  },
+  dateDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 10,
+  },
+  dateText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  lockedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
+  },
+  lockedText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   nutritionSummary: {
     marginHorizontal: 20,
@@ -428,7 +824,7 @@ const styles = StyleSheet.create({
   },
   summaryItem: {
     flex: 1,
-    minWidth: '45%',
+    minWidth: '40%',
   },
   summaryLabel: {
     fontSize: 12,
@@ -453,108 +849,106 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#4CAF50',
     borderRadius: 3,
   },
   mealsContainer: {
     paddingHorizontal: 20,
+    gap: 12,
     marginBottom: 20,
   },
-  mealsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  changeDateText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  mealItem: {
+  mealSection: {
     borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
   },
-  mealHeader: {
+  mealSectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-  mealInfo: {
-    flex: 1,
-  },
-  mealTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  mealTime: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  mealActions: {
+  mealTypeInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
-  addButton: {
-    padding: 4,
-  },
-  removeButton: {
-    padding: 4,
-  },
-  foodInfo: {
-    borderTopWidth: 1,
-    paddingTop: 12,
-  },
-  foodName: {
-    fontSize: 14,
+  mealTypeTitle: {
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 8,
   },
-  nutritionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  nutritionText: {
+  mealTypeTime: {
     fontSize: 12,
   },
-  emptyMeal: {
-    borderTopWidth: 1,
-    paddingTop: 12,
+  addMealButton: {
+    padding: 4,
+  },
+  fullBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  fullBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  mealsList: {
+    gap: 8,
+  },
+  mealItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 10,
+  },
+  mealItemContent: {
+    flex: 1,
+  },
+  mealName: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  mealNutrition: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  nutritionBadge: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  nutritionText: {
+    fontSize: 11,
+  },
+  removeMealButton: {
+    padding: 8,
+  },
+  mealActionButton: {
+    padding: 8,
+  },
+  emptyMealSection: {
+    paddingVertical: 16,
     alignItems: 'center',
   },
   emptyText: {
     fontSize: 14,
-    marginBottom: 4,
-  },
-  emptySubtext: {
-    fontSize: 12,
   },
   quickActions: {
-    flexDirection: 'column',
     paddingHorizontal: 20,
     gap: 12,
     marginBottom: 24,
   },
   actionButton: {
-    flex: 1,
-    justifyContent: 'center',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 12,
     gap: 8,
   },
   actionText: {
-    flex: 1,
-    textAlign: 'center',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -583,8 +977,12 @@ const styles = StyleSheet.create({
   inputGroup: {
     marginBottom: 20,
   },
+  inputGroupSmall: {
+    flex: 1,
+    marginBottom: 20,
+  },
   inputLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     marginBottom: 8,
   },
@@ -595,6 +993,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
   },
+  errorText: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  mealTypeSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  mealTypeOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  mealTypeOptionText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
   nutritionInputs: {
     flexDirection: 'row',
     gap: 12,
@@ -603,11 +1020,47 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 10,
+    marginBottom: 40,
   },
   addCustomButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Action Sheet Styles
+  actionSheetContent: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    gap: 12,
+  },
+  actionSheetSubtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  actionSheetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    gap: 10,
+  },
+  actionSheetButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  actionSheetCancelButton: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  actionSheetCancelText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
