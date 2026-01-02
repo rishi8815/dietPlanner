@@ -5,10 +5,10 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import DailyMealsService, { MealItem } from '@/services/DailyMealsService';
 import { showToast } from '@/components/ToastConfig';
+import { MealsPageSkeleton } from '@/components/skeletons';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  ActivityIndicator,
   Modal,
   ScrollView,
   StyleSheet,
@@ -102,7 +102,7 @@ const MealsScreen = () => {
     return getMealsByType(mealType).length >= MAX_MEALS_PER_SECTION;
   };
 
-  // Handle adding a recommended meal
+  // Handle adding a recommended meal - OPTIMISTIC UPDATE
   const handleSelectFood = async (food: FoodItem) => {
     if (!user?.id) return;
 
@@ -113,28 +113,32 @@ const MealsScreen = () => {
       return;
     }
 
-    try {
-      const newMeal: Omit<MealItem, 'id' | 'added_at'> = {
-        meal_type: food.meal_type,
-        name: food.name,
-        calories: food.calories,
-        protein: food.protein,
-        carbs: food.carbs,
-        fat: food.fat,
-        time: food.time,
-      };
+    const newMeal: Omit<MealItem, 'id' | 'added_at'> = {
+      meal_type: food.meal_type,
+      name: food.name,
+      calories: food.calories,
+      protein: food.protein,
+      carbs: food.carbs,
+      fat: food.fat,
+      time: food.time,
+    };
 
-      const result = await DailyMealsService.addMeal(user.id, selectedDate, newMeal);
-      if (result) {
-        setMeals(result.meals);
-        showToast.success('Meal Added', `${food.name} added to your ${food.meal_type}`);
-      }
-    } catch (error) {
-      console.error('Error adding meal:', error);
-      showToast.error('Error', 'Failed to add meal');
-    }
-
+    // Close modal immediately for better UX
     setShowAIRecommendations(false);
+    showToast.success('Meal Added', `${food.name} added to your ${food.meal_type}`);
+
+    // Use optimistic update - UI updates instantly
+    await DailyMealsService.addMealOptimistic(
+      user.id,
+      selectedDate,
+      newMeal,
+      meals,
+      (optimisticMeals) => setMeals(optimisticMeals),
+      (error, originalMeals) => {
+        setMeals(originalMeals);
+        showToast.error('Error', 'Failed to add meal. Rolled back.');
+      }
+    );
   };
 
   // Handle meal actions (edit/delete) - opens bottom sheet
@@ -171,23 +175,30 @@ const MealsScreen = () => {
     setShowCustomMealModal(true);
   };
 
-  // Handle delete meal
+  // Handle delete meal - OPTIMISTIC UPDATE
   const handleDeleteMeal = async () => {
     if (!user?.id || !selectedMealForAction) return;
+    const mealToDelete = selectedMealForAction;
     closeMealActionSheet();
-    try {
-      const result = await DailyMealsService.removeMeal(user.id, selectedDate, selectedMealForAction.id);
-      if (result) {
-        setMeals(result.meals);
-        showToast.success('Deleted', 'Meal deleted successfully');
+
+    // Show success immediately
+    showToast.success('Deleted', 'Meal deleted successfully');
+
+    // Use optimistic update
+    await DailyMealsService.removeMealOptimistic(
+      user.id,
+      selectedDate,
+      mealToDelete.id,
+      meals,
+      (optimisticMeals) => setMeals(optimisticMeals),
+      (error, originalMeals) => {
+        setMeals(originalMeals);
+        showToast.error('Error', 'Failed to delete meal. Rolled back.');
       }
-    } catch (error) {
-      console.error('Error deleting meal:', error);
-      showToast.error('Error', 'Failed to delete meal');
-    }
+    );
   };
 
-  // Handle clearing all meals for the day - immediate delete without confirmation
+  // Handle clearing all meals for the day - OPTIMISTIC UPDATE
   const handleClearAllMeals = async () => {
     if (isLocked) {
       showToast.error('Locked', 'Past meals cannot be modified');
@@ -201,19 +212,23 @@ const MealsScreen = () => {
 
     if (!user?.id) return;
 
-    try {
-      await DailyMealsService.clearMealsForDate(user.id, selectedDate);
-      setMeals([]);
-      showToast.success('Cleared', 'All meals cleared');
-      // Refresh the data
-      loadMeals();
-    } catch (error) {
-      console.error('Error clearing meals:', error);
-      showToast.error('Error', 'Failed to clear meals');
-    }
+    // Show success immediately
+    showToast.success('Cleared', 'All meals cleared');
+
+    // Use optimistic update
+    await DailyMealsService.clearMealsOptimistic(
+      user.id,
+      selectedDate,
+      meals,
+      (optimisticMeals) => setMeals(optimisticMeals),
+      (error, originalMeals) => {
+        setMeals(originalMeals);
+        showToast.error('Error', 'Failed to clear meals. Rolled back.');
+      }
+    );
   };
 
-  // Handle adding/updating custom meal
+  // Handle adding/updating custom meal - OPTIMISTIC UPDATE
   const handleSaveCustomMeal = async () => {
     // Clear previous errors
     const newErrors = { name: '', calories: '', protein: '', carbs: '', fat: '' };
@@ -263,49 +278,63 @@ const MealsScreen = () => {
 
     const mealType = MEAL_TYPES.find(t => t.id === modalMealType);
 
-    try {
-      if (isEditMode && editingMeal) {
-        // Update existing meal
-        const updates: Partial<MealItem> = {
-          name: trimmedName,
-          calories: calories,
-          protein: protein,
-          carbs: carbs,
-          fat: fat,
-        };
+    // Close modal immediately for better UX
+    setShowCustomMealModal(false);
+    setCustomMealData({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+    const currentEditingMeal = editingMeal;
+    const wasEditMode = isEditMode;
+    setEditingMeal(null);
+    setIsEditMode(false);
 
-        const result = await DailyMealsService.updateMeal(user.id, selectedDate, editingMeal.id, updates);
-        if (result) {
-          setMeals(result.meals);
-          showToast.success('Updated', `${trimmedName} updated successfully`);
+    if (wasEditMode && currentEditingMeal) {
+      // Update existing meal - OPTIMISTIC
+      const updates: Partial<MealItem> = {
+        name: trimmedName,
+        calories: calories,
+        protein: protein,
+        carbs: carbs,
+        fat: fat,
+      };
+
+      showToast.success('Updated', `${trimmedName} updated successfully`);
+
+      await DailyMealsService.updateMealOptimistic(
+        user.id,
+        selectedDate,
+        currentEditingMeal.id,
+        updates,
+        meals,
+        (optimisticMeals) => setMeals(optimisticMeals),
+        (error, originalMeals) => {
+          setMeals(originalMeals);
+          showToast.error('Error', 'Failed to update meal. Rolled back.');
         }
-      } else {
-        // Add new meal
-        const newMeal: Omit<MealItem, 'id' | 'added_at'> = {
-          meal_type: modalMealType as MealItem['meal_type'],
-          name: trimmedName,
-          calories: calories,
-          protein: protein,
-          carbs: carbs,
-          fat: fat,
-          time: mealType?.time || '12:00',
-        };
+      );
+    } else {
+      // Add new meal - OPTIMISTIC
+      const newMeal: Omit<MealItem, 'id' | 'added_at'> = {
+        meal_type: modalMealType as MealItem['meal_type'],
+        name: trimmedName,
+        calories: calories,
+        protein: protein,
+        carbs: carbs,
+        fat: fat,
+        time: mealType?.time || '12:00',
+      };
 
-        const result = await DailyMealsService.addMeal(user.id, selectedDate, newMeal);
-        if (result) {
-          setMeals(result.meals);
-          showToast.success('Meal Added', `${trimmedName} added successfully`);
+      showToast.success('Meal Added', `${trimmedName} added successfully`);
+
+      await DailyMealsService.addMealOptimistic(
+        user.id,
+        selectedDate,
+        newMeal,
+        meals,
+        (optimisticMeals) => setMeals(optimisticMeals),
+        (error, originalMeals) => {
+          setMeals(originalMeals);
+          showToast.error('Error', 'Failed to add meal. Rolled back.');
         }
-      }
-
-      // Reset modal state
-      setShowCustomMealModal(false);
-      setCustomMealData({ name: '', calories: '', protein: '', carbs: '', fat: '' });
-      setEditingMeal(null);
-      setIsEditMode(false);
-    } catch (error) {
-      console.error('Error saving meal:', error);
-      showToast.error('Error', 'Failed to save meal');
+      );
     }
   };
 
@@ -607,13 +636,9 @@ const MealsScreen = () => {
     </Modal>
   );
 
+  // Show skeleton loader instead of spinner
   if (isLoading) {
-    return (
-      <View style={[styles.container, styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading your meals...</Text>
-      </View>
-    );
+    return <MealsPageSkeleton />;
   }
 
   return (

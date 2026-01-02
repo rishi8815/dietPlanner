@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   View,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -30,12 +31,18 @@ export const CustomBottomNav: React.FC<CustomBottomNavProps> = ({
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
 
+  // For web: no extra bottom padding needed
+  // For native: use safe area insets if available
+  const bottomPadding = Platform.OS === 'web'
+    ? 0
+    : Math.max(insets.bottom - 8, 0); // Reduce the safe area a bit
+
   return (
     <View style={[
       styles.bottomNav,
       {
         backgroundColor: colors.surface,
-        paddingBottom: Math.max(insets.bottom, 12),
+        paddingBottom: bottomPadding,
       }
     ]}>
       {items.map((item, index) => {
@@ -68,10 +75,10 @@ export const CustomBottomNav: React.FC<CustomBottomNavProps> = ({
 const styles = StyleSheet.create({
   bottomNav: {
     flexDirection: 'row',
-    paddingVertical: 12,
+    paddingVertical: 8,
     paddingHorizontal: 20,
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -85,7 +92,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   iconContainer: {
     padding: 8,

@@ -1,4 +1,12 @@
 import { supabase } from '@/lib/supabase';
+import {
+    cache,
+    cacheKeys,
+    tagKeys,
+    rateLimitProfile,
+    rateLimitWrite,
+    CACHE_TTL
+} from '@/lib/redis';
 
 export interface UserProfile {
     id: string;
@@ -40,35 +48,62 @@ export interface ProfileUpdateData {
 class ProfileService {
     /**
      * Get the current user's profile
+     * Uses Redis caching with stale-while-revalidate pattern
      */
     async getProfile(userId: string): Promise<UserProfile | null> {
-        try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', userId)
-                .maybeSingle(); // Use maybeSingle instead of single to return null if not found
+        // Apply rate limiting
+        const rateLimitResult = await rateLimitProfile(userId);
+        if (!rateLimitResult.success) {
+            console.warn(`Rate limited: ${rateLimitResult.remaining} requests remaining`);
+        }
 
-            if (error) {
-                // PGRST116 means no rows found, which is expected for new users
-                if (error.code === 'PGRST116') {
+        const cacheKey = cacheKeys.userProfile(userId);
+
+        // Use stale-while-revalidate for better UX
+        // Profile data doesn't change often, so stale data is acceptable briefly
+        return cache.getStaleWhileRevalidate<UserProfile | null>(
+            cacheKey,
+            async () => {
+                try {
+                    const { data, error } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', userId)
+                        .maybeSingle();
+
+                    if (error) {
+                        // PGRST116 means no rows found, which is expected for new users
+                        if (error.code === 'PGRST116') {
+                            return null;
+                        }
+                        console.error('Error fetching profile:', error);
+                        return null;
+                    }
+
+                    return data as UserProfile | null;
+                } catch (error) {
+                    console.error('Error in getProfile:', error);
                     return null;
                 }
-                console.error('Error fetching profile:', error);
-                return null;
+            },
+            {
+                ttl: CACHE_TTL.namespaces.profile,
+                staleWhileRevalidate: CACHE_TTL.staleGrace.profile,
+                tags: [tagKeys.userProfile(userId), tagKeys.user(userId)],
             }
-
-            return data as UserProfile | null;
-        } catch (error) {
-            console.error('Error in getProfile:', error);
-            return null;
-        }
+        );
     }
 
     /**
      * Create a new profile for a user
      */
     async createProfile(userId: string): Promise<UserProfile | null> {
+        // Rate limit write operations
+        const rateLimitResult = await rateLimitWrite(userId);
+        if (!rateLimitResult.success) {
+            throw new Error(`Too many requests. Please try again in ${rateLimitResult.retryAfter} seconds.`);
+        }
+
         try {
             const { data, error } = await supabase
                 .from('profiles')
@@ -84,7 +119,11 @@ class ProfileService {
                 return null;
             }
 
-            return data as UserProfile;
+            // Cache the new profile
+            const profile = data as UserProfile;
+            await this.cacheProfile(userId, profile);
+
+            return profile;
         } catch (error) {
             console.error('Error in createProfile:', error);
             return null;
@@ -95,6 +134,12 @@ class ProfileService {
      * Update the user's profile
      */
     async updateProfile(userId: string, updates: ProfileUpdateData): Promise<UserProfile | null> {
+        // Rate limit write operations
+        const rateLimitResult = await rateLimitWrite(userId);
+        if (!rateLimitResult.success) {
+            throw new Error(`Too many requests. Please try again in ${rateLimitResult.retryAfter} seconds.`);
+        }
+
         try {
             const { data, error } = await supabase
                 .from('profiles')
@@ -111,7 +156,11 @@ class ProfileService {
                 return null;
             }
 
-            return data as UserProfile;
+            // Update cache with new data
+            const profile = data as UserProfile;
+            await this.cacheProfile(userId, profile);
+
+            return profile;
         } catch (error) {
             console.error('Error in updateProfile:', error);
             return null;
@@ -122,6 +171,12 @@ class ProfileService {
      * Complete onboarding for the user
      */
     async completeOnboarding(userId: string): Promise<boolean> {
+        // Rate limit write operations
+        const rateLimitResult = await rateLimitWrite(userId);
+        if (!rateLimitResult.success) {
+            throw new Error(`Too many requests. Please try again in ${rateLimitResult.retryAfter} seconds.`);
+        }
+
         try {
             const { error } = await supabase
                 .from('profiles')
@@ -136,6 +191,9 @@ class ProfileService {
                 return false;
             }
 
+            // Invalidate cache to reflect the change
+            await this.invalidateProfileCache(userId);
+
             return true;
         } catch (error) {
             console.error('Error in completeOnboarding:', error);
@@ -145,6 +203,7 @@ class ProfileService {
 
     /**
      * Check if the user has completed onboarding
+     * Uses cached profile data
      */
     async isOnboardingCompleted(userId: string): Promise<boolean> {
         const profile = await this.getProfile(userId);
@@ -217,6 +276,37 @@ class ProfileService {
         }
 
         return Math.round(weight_kg * proteinPerKg);
+    }
+
+    /**
+     * Cache the profile data
+     */
+    private async cacheProfile(userId: string, profile: UserProfile): Promise<void> {
+        const cacheKey = cacheKeys.userProfile(userId);
+        await cache.set(cacheKey, profile, {
+            ttl: CACHE_TTL.namespaces.profile,
+            tags: [tagKeys.userProfile(userId), tagKeys.user(userId)],
+        });
+    }
+
+    /**
+     * Invalidate profile cache
+     */
+    private async invalidateProfileCache(userId: string): Promise<void> {
+        try {
+            await cache.invalidateByTag(tagKeys.userProfile(userId));
+        } catch (error) {
+            console.error('Error invalidating profile cache:', error);
+        }
+    }
+
+    /**
+     * Manually refresh profile cache
+     * Useful when you know data has changed externally
+     */
+    async refreshCache(userId: string): Promise<void> {
+        await this.invalidateProfileCache(userId);
+        await this.getProfile(userId);
     }
 }
 
