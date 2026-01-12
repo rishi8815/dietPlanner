@@ -15,6 +15,7 @@ A personalized AI-powered diet planning mobile application built with React Nati
 - AI-powered personalized meal recommendations
 - Breakfast, lunch, dinner, and snack suggestions
 - Customizable meal plans based on your preferences
+- More ai features
 
 ### 📊 **Nutrition Tracking**
 - Track daily calories, protein, carbs, and fat intake
