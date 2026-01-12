@@ -1,3 +1,5 @@
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/rishi8815/dietPlanner?utm_source=oss&utm_medium=github&utm_campaign=rishi8815%2FdietPlanner&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 # 🥗 AI Diet Planner
 
 A personalized AI-powered diet planning mobile application built with React Native and Expo. Get smart meal recommendations, track your nutrition, and achieve your health goals with ease.
